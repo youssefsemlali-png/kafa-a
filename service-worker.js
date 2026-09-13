@@ -1,5 +1,5 @@
 // خدمة العامل (Service Worker) - تطبيق إمتحانات وزارة العدل
-const CACHE_NAME = 'exam-app-cache-v17';
+const CACHE_NAME = 'exam-app-cache-v18';
 const APP_SHELL = [
   './',
   './index.html',
