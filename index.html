@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl" style="--app-height: 720.3333129882812px;"><head>
+<html lang="ar" dir="rtl"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
 <title>تطبيق إمتحانات وزارة العدل</title>
@@ -118,7 +118,10 @@
   .splash-screen {
     position: fixed;
     inset: 0;
-    height: 100vh;
+    /* نستخدم نفس المتغيّر المستقر --app-height (بدل 100vh) حتى لا تتحرك
+       شاشة البداية صعوداً ونزولاً بسبب تغيّر ارتفاع شريط عنوان المتصفح
+       أثناء الثواني الأولى لفتح التطبيق. */
+    height: calc(var(--app-height, 100vh));
     background: var(--cream);
     z-index: 100;
     display: flex;
@@ -126,7 +129,7 @@
     align-items: center;
     justify-content: center;
     text-align: center;
-    padding: 20px 20px 16vh;
+    padding: 20px 20px calc(var(--app-height, 100vh) * 0.16);
     animation: fadeOut 0.5s ease 4.0s forwards;
   }
   @keyframes fadeOut {
@@ -1502,15 +1505,17 @@ async function saveExam(exam){
   // مزامنة فهرس المواضيع حتى تنعكس أي إضافة/تعديل/حذف لموضوع السؤال
   // مباشرة في قائمة وإحصائيات "حسب الموضوع".
   try{
+    // قراءة كل الامتحانات بالتوازي بدل التسلسل، لتفادي بطء الاستجابة بعد
+    // الضغط على زر الحفظ (كانت تُعاد قراءة كل امتحان امتحاناً واحداً تلو الآخر).
     const topicsSet = new Set();
-    for(const item of idx){
-      const full = await getExam(item.id);
-      if(!full || !Array.isArray(full.questions)) continue;
+    const allExams = await Promise.all(idx.map(item=>getExam(item.id)));
+    allExams.forEach(full=>{
+      if(!full || !Array.isArray(full.questions)) return;
       full.questions.forEach(q=>{
         const t = (q.topic || '').trim();
         if(t) topicsSet.add(t);
       });
-    }
+    });
     await storageSet('topics-index', JSON.stringify([...topicsSet]), true);
   }catch(e){
     console.warn('Topic index refresh failed:', e);
@@ -1528,14 +1533,14 @@ async function deleteExamStorage(id){
   // تحديث فهرس المواضيع بعد حذف امتحان حتى لا تبقى مواضيع قديمة.
   try{
     const topicsSet = new Set();
-    for(const item of filtered){
-      const full = await getExam(item.id);
-      if(!full || !Array.isArray(full.questions)) continue;
+    const allExams = await Promise.all(filtered.map(item=>getExam(item.id)));
+    allExams.forEach(full=>{
+      if(!full || !Array.isArray(full.questions)) return;
       full.questions.forEach(q=>{
         const t = (q.topic || '').trim();
         if(t) topicsSet.add(t);
       });
-    }
+    });
     await storageSet('topics-index', JSON.stringify([...topicsSet]), true);
   }catch(e){
     console.warn('Topic index refresh after delete failed:', e);
@@ -2047,14 +2052,16 @@ async function setBestScore(examId, score, total){
 
 async function getAllBestScores(){
   const keys = await storageListKeys('best-score:', false);
+  // قراءة كل المفاتيح بالتوازي بدل التسلسل لتسريع ظهور شاشة الإحصائيات.
+  const values = await Promise.all(keys.map(k=>storageGet(k, false)));
   const out = [];
-  for(const k of keys){
-    const examId = k.slice('best-score:'.length);
-    const v = await storageGet(k, false);
+  keys.forEach((k,i)=>{
+    const v = values[i];
     if(v){
+      const examId = k.slice('best-score:'.length);
       try{ out.push({ examId, ...JSON.parse(v) }); }catch(e){}
     }
-  }
+  });
   return out;
 }
 
@@ -2088,8 +2095,10 @@ async function renameTopicInIndex(oldName, newName){
   await storageSet('topics-index', JSON.stringify(uniq), true).catch(()=>{});
 
   const idx = await getExamIndex();
-  for(const item of idx){
-    const exam = await getExam(item.id);
+  // نقرأ كل الامتحانات بالتوازي (القراءة وحدها آمنة للتوازي)، ثم نحفظ التغييرات
+  // بشكل متسلسل لتفادي تضارب الكتابة على فهرس الامتحانات.
+  const exams = await Promise.all(idx.map(item=>getExam(item.id)));
+  for(const exam of exams){
     if(!exam || !Array.isArray(exam.questions)) continue;
     let changed = false;
     exam.questions.forEach(q=>{
@@ -2104,14 +2113,14 @@ async function getTopicsIndexSortedByUsage(){
   const counts = {};
   list.forEach(t=>{ counts[t] = 0; });
   const idx = await getExamIndex();
-  for(const item of idx){
-    const exam = await getExam(item.id);
-    if(!exam || !Array.isArray(exam.questions)) continue;
+  const exams = await Promise.all(idx.map(item=>getExam(item.id)));
+  exams.forEach(exam=>{
+    if(!exam || !Array.isArray(exam.questions)) return;
     exam.questions.forEach(q=>{
       const t = (q.topic||'').trim();
       if(t){ counts[t] = (counts[t]||0) + 1; }
     });
-  }
+  });
   return [...list].sort((a,b)=> (counts[b]||0) - (counts[a]||0));
 }
 
@@ -2489,10 +2498,11 @@ function tagQuestionExamInfo(q, e){
 
 async function getQuestionsByTopic(topic){
   const idx = await getExamIndex();
+  const fulls = await Promise.all(idx.map(e=>getExam(e.id)));
   const questions = [];
   const seen = new Set();
-  for(const e of idx){
-    const full = await getExam(e.id);
+  idx.forEach((e,i)=>{
+    const full = fulls[i];
     if(full && Array.isArray(full.questions)){
       full.questions.forEach(q=>{
         if((q.topic||'').trim()===topic && isQuestionReady(q) && !seen.has(q.id)){
@@ -2501,16 +2511,17 @@ async function getQuestionsByTopic(topic){
         }
       });
     }
-  }
+  });
   return questions;
 }
 
 async function getIncompleteDraftQuestionsByTopic(topic){
   const idx = await getExamIndex();
   const drafts = idx.filter(e=>e.published===false);
+  const fulls = await Promise.all(drafts.map(e=>getExam(e.id)));
   const results = [];
-  for(const e of drafts){
-    const full = await getExam(e.id);
+  drafts.forEach((e,i)=>{
+    const full = fulls[i];
     if(full && Array.isArray(full.questions)){
       full.questions.forEach((q,qi)=>{
         const isIncomplete = !q.correctIndices || q.correctIndices.length===0;
@@ -2519,15 +2530,16 @@ async function getIncompleteDraftQuestionsByTopic(topic){
         }
       });
     }
-  }
+  });
   return results;
 }
 
 async function getAllQuestionsByTopicAnyStatus(topic){
   const idx = await getExamIndex();
+  const fulls = await Promise.all(idx.map(e=>getExam(e.id)));
   const results = [];
-  for(const e of idx){
-    const full = await getExam(e.id);
+  idx.forEach((e,i)=>{
+    const full = fulls[i];
     if(full && Array.isArray(full.questions)){
       full.questions.forEach((q,qi)=>{
         if((q.topic||'').trim()===topic){
@@ -2535,7 +2547,7 @@ async function getAllQuestionsByTopicAnyStatus(topic){
         }
       });
     }
-  }
+  });
   return results;
 }
 
@@ -2552,9 +2564,10 @@ function isQuestionReady(q){
 async function getReviewDraftQuestionsByTopic(topic){
   const idx = await getExamIndex();
   const drafts = idx.filter(e=>e.published===false);
+  const fulls = await Promise.all(drafts.map(e=>getExam(e.id)));
   const results = [];
-  for(const e of drafts){
-    const full = await getExam(e.id);
+  drafts.forEach((e,i)=>{
+    const full = fulls[i];
     if(full && Array.isArray(full.questions)){
       full.questions.forEach((q,qi)=>{
         if(isQuestionNeedsReview(q) && (q.topic||'').trim()===topic){
@@ -2562,7 +2575,7 @@ async function getReviewDraftQuestionsByTopic(topic){
         }
       });
     }
-  }
+  });
   return results;
 }
 
@@ -2964,15 +2977,29 @@ async function renderLegalReviewHome(){
 
 async function renderLegalReviewTopics(){
   const topics=await getTopicsIndex();
+  // نجلب فهرس الامتحانات وكل الأسئلة مرة واحدة بدل استدعاء getQuestionsByTopic
+  // لكل موضوع على حدة (كان يعيد قراءة كل الامتحانات من جديد في كل مرة)، ثم
+  // نحسب عدد الأسئلة الجاهزة لكل موضوع محليا، ونجلب أفضل النتائج بالتوازي.
+  const idx = await getExamIndex();
+  const fulls = await Promise.all(idx.map(e=>getExam(e.id)));
+  const countByTopic = {};
+  fulls.forEach(full=>{
+    if(!full || !Array.isArray(full.questions)) return;
+    full.questions.forEach(q=>{
+      const t=(q.topic||'').trim();
+      if(t && isQuestionReady(q)) countByTopic[t]=(countByTopic[t]||0)+1;
+    });
+  });
+  const bestScores = await Promise.all(topics.map(topic=>getBestScore('topic:'+topic)));
   const rows=[];
-  for(const topic of topics){
-    const qs=await getQuestionsByTopic(topic);
-    if(qs.length){
-      const best=await getBestScore('topic:'+topic);
+  topics.forEach((topic,i)=>{
+    const count = countByTopic[topic]||0;
+    if(count){
+      const best=bestScores[i];
       const lastLabel=best && best.lastSolvedAt ? formatLastSolvedDate(best.lastSolvedAt) : '';
-      rows.push({topic,count:qs.length,lastLabel});
+      rows.push({topic,count,lastLabel});
     }
-  }
+  });
   rows.sort((a,b)=>b.count-a.count || a.topic.localeCompare(b.topic,'ar'));
   app.innerHTML=`<div class="topbar"><button class="home-btn" id="goHome" title="الرئيسية">${ic.home}</button><h2>مراجعة حسب الموضوع</h2><button class="exit-btn" id="exitHome" title="الخروج">${ic.exit}</button></div><div class="screen" style="padding-bottom:110px;"><div>${rows.length?rows.map(r=>`<button class="choice-card" data-review-topic="${esc(r.topic)}"><span class="badge2">📖</span><span class="txt"><strong>${esc(r.topic)}</strong><span>${r.count} سؤال${r.lastLabel?' · آخر إجابة: '+esc(r.lastLabel):''}</span></span></button>`).join(''):`<div class="empty">${ic.empty}<div>لا توجد مواضيع متاحة للمراجعة بعد.</div></div>`}</div></div>`;
   document.querySelectorAll('[data-review-topic]').forEach(btn=>btn.onclick=()=>{state={screen:'legal-review-topic-exam',reviewTopic:btn.dataset.reviewTopic};render();});
@@ -3144,12 +3171,18 @@ async function renderLegalReviewList(type){
     });
     entries=Object.values(byMaterial);
   }
+  // نجلب كل النتائج دفعة واحدة بالتوازي بدل قراءتها بشكل متسلسل داخل حلقتين
+  // متداخلتين، لتفادي بطء ظهور قائمة المراجعة.
+  const allItemIds = [];
+  entries.forEach(e=>{ if(e.items) e.items.forEach(it=>allItemIds.push(it.id)); else allItemIds.push(e.id); });
+  const allScores = await Promise.all(allItemIds.map(id=>getBestScore(id)));
+  const scoreById = new Map(allItemIds.map((id,i)=>[id, allScores[i]]));
   const rows=[];
   for(const e of entries){
     let score=null,total=0;
     if(e.items){
-      for(const it of e.items){const b=await getBestScore(it.id);if(b && (!score || Number(b.score)>Number(score.score))) score=b; total+=Number(it.count||0);}
-    }else{ score=await getBestScore(e.id); total=Number(e.count||0); }
+      for(const it of e.items){const b=scoreById.get(it.id);if(b && (!score || Number(b.score)>Number(score.score))) score=b; total+=Number(it.count||0);}
+    }else{ score=scoreById.get(e.id); total=Number(e.count||0); }
     rows.push(`<button class="choice-card" data-review-id="${esc(e.reviewId||e.id)}" data-review-material="${esc(e.material||'')}" data-review-items="${esc(e.items?e.items.map(x=>x.id).join(','):'')}"><span class="badge2">${type==='count'?'🔢':'⏳'}</span><span class="txt"><strong>${esc(e.material||e.title||'اختبار')}</strong><span>${total} سؤال${score?' · أفضل نتيجة: '+score.score+'/'+score.total:''}</span></span></button>`);
   }
   app.innerHTML=`<div class="topbar"><button class="home-btn" id="goHome" title="الرئيسية">${ic.home}</button><h2>${type==='count'?'مراجعة عدد المرات':'مراجعة الآجال'}</h2><button class="exit-btn" id="exitHome" title="الخروج">${ic.exit}</button></div><div class="screen" style="padding-bottom:110px;"><div id="legalReviewList">${rows.length?rows.join(''):`<div class="empty">${ic.empty}<div>لا توجد اختبارات مدخلة من هذا النوع بعد.</div></div>`}</div></div>`;
@@ -3550,9 +3583,10 @@ async function runLegalSearch(term){
   const needle = String(term||'').trim().toLocaleLowerCase();
   if(!needle) return [];
   const idx = await getExamIndex();
+  const fulls = await Promise.all(idx.map(e=>getExam(e.id)));
   const results = [];
-  for(const e of idx){
-    const full = await getExam(e.id);
+  idx.forEach((e,i)=>{
+    const full = fulls[i];
     if(full && Array.isArray(full.questions)){
       full.questions.forEach((q,qi)=>{
         const inText = (q.text||'').toLocaleLowerCase().includes(needle);
@@ -3572,7 +3606,7 @@ async function runLegalSearch(term){
         }
       });
     }
-  }
+  });
   return results;
 }
 
@@ -3754,10 +3788,12 @@ function highlightSearchTerm(text, term){
 
 async function runLegalReferenceSearch(term){
   const texts=await getLegalTexts();
+  // استخراج نصوص كل الملفات بالتوازي بدل التسلسل لتسريع نتائج البحث أثناء الكتابة.
+  const extractedList = await Promise.all(texts.map(t=>getLegalTextExtract(t.id)));
   const matches=[];
-  for(const t of texts){
-    const extracted=await getLegalTextExtract(t.id);
-    if(!extracted) continue;
+  texts.forEach((t,i)=>{
+    const extracted = extractedList[i];
+    if(!extracted) return;
     const passages=findLegalPassages(extracted,term);
     passages.forEach(p=>matches.push({
       id:t.id,
@@ -3767,7 +3803,7 @@ async function runLegalReferenceSearch(term){
       marker:p.marker,
       excerpt:p.excerpt
     }));
-  }
+  });
   return matches;
 }
 
@@ -4135,7 +4171,7 @@ async function renderHomeSettings(){
     <h2>الإعدادات</h2>
     <button class="exit-btn" id="exitHome" title="الخروج">${ic.exit}</button>
   </div>
-  <div class="screen" style="display:flex;flex-direction:column;gap:10px;min-height:calc(100vh - 66px);">
+  <div class="screen" style="display:flex;flex-direction:column;gap:10px;min-height:calc(var(--app-height, 100vh) - 66px);">
     <button class="action-btn right-align admin-menu-btn sync" id="settingsBackupBtn">
       <span class="action-icon">${ic.upload}</span> النسخة الاحتياطية
     </button>
@@ -4189,9 +4225,11 @@ function findDuplicateQuestions(examA, examB){
 }
 
 async function getDuplicateScanExamData(idx){
+  const items = idx||[];
+  const fulls = await Promise.all(items.map(item=>getExam(item.id)));
   const exams = [];
-  for(const item of (idx||[])){
-    let full = await getExam(item.id);
+  items.forEach((item,i)=>{
+    let full = fulls[i];
     // fallback إلى البيانات المضمنة داخل الملف إذا لم تكن البيانات موجودة في التخزين المحلي بعد.
     if(!full && window.__INITIAL_DATA__ && Array.isArray(window.__INITIAL_DATA__.exams)){
       full = window.__INITIAL_DATA__.exams.find(e=>e && e.id===item.id) || null;
@@ -4204,7 +4242,7 @@ async function getDuplicateScanExamData(idx){
       });
       exams.push(full);
     }
-  }
+  });
   return exams;
 }
 
@@ -5634,12 +5672,28 @@ async function renderAdminTopics(){
   }
   areaEl.innerHTML = `<p style="font-size:12.5px;color:var(--muted);line-height:1.8;margin:0 2px 12px;">اضغط على أي موضوع لعرض أسئلته مصنّفة إلى جاهزة وغير جاهزة.</p>` +
     `<div id="topicsListInner"></div>`;
-  const topicsData = await Promise.all(topics.map(async t=>{
-    const all = await getAllQuestionsByTopicAnyStatus(t);
-    const readyCount = all.filter(it=> isQuestionReady(it.question)).length;
-    const notReadyCount = all.length - readyCount;
-    return { t, total: all.length, readyCount, notReadyCount };
-  }));
+  // نجلب فهرس الامتحانات وكل الأسئلة مرة واحدة فقط، بدل استدعاء
+  // getAllQuestionsByTopicAnyStatus لكل موضوع على حدة (كان ذلك يعيد قراءة كل
+  // الامتحانات من التخزين لكل موضوع، أي عشرات المرات في نفس الشاشة، وهو ما
+  // كان يسبب البطء الملحوظ عند فتح شاشة المواضيع).
+  const idxAll = await getExamIndex();
+  const fullsAll = await Promise.all(idxAll.map(e=>getExam(e.id)));
+  const statsByTopic = {};
+  idxAll.forEach((e,i)=>{
+    const full = fullsAll[i];
+    if(!full || !Array.isArray(full.questions)) return;
+    full.questions.forEach(q=>{
+      const t=(q.topic||'').trim();
+      if(!t) return;
+      if(!statsByTopic[t]) statsByTopic[t]={total:0,readyCount:0};
+      statsByTopic[t].total++;
+      if(isQuestionReady(q)) statsByTopic[t].readyCount++;
+    });
+  });
+  const topicsData = topics.map(t=>{
+    const s = statsByTopic[t] || {total:0,readyCount:0};
+    return { t, total: s.total, readyCount: s.readyCount, notReadyCount: s.total - s.readyCount };
+  });
   // ترتيب تنازلي حسب عدد الأسئلة غير الجاهزة، ثم إجمالي الأسئلة.
   topicsData.sort((a,b)=>{
     return (b.notReadyCount-a.notReadyCount) || (b.total-a.total) || a.t.localeCompare(b.t,'ar');
@@ -6227,15 +6281,16 @@ async function findDuplicateQuestions(examDraft){
     if(key) target.set(key, q);
   }
   const duplicates = [];
-  for(const item of idx){
-    if(item.id === examDraft.id) continue;
-    const full = await getExam(item.id);
-    if(!full || !Array.isArray(full.questions)) continue;
+  const otherItems = idx.filter(item=>item.id!==examDraft.id);
+  const fulls = await Promise.all(otherItems.map(item=>getExam(item.id)));
+  otherItems.forEach((item,i)=>{
+    const full = fulls[i];
+    if(!full || !Array.isArray(full.questions)) return;
     full.questions.forEach((q, qi)=>{
       const key = normalizeQuestionTextForDuplicate(q.text);
       if(key && target.has(key)) duplicates.push({exam:item, question:q, qIndex:qi});
     });
-  }
+  });
   return duplicates;
 }
 
@@ -6849,11 +6904,29 @@ async function renderUserDash(){
   `;
       return;
     }
-    const topicsWithCount = await Promise.all(topics.map(async t=>{
-      const qs = await getQuestionsByTopic(t);
-      const best = await getBestScore('topic:'+t);
-      return { label:t, badge:'📖', sub:qs.length+' سؤال', value:t, _count:qs.length, _lastSolvedAt: best && best.lastSolvedAt ? best.lastSolvedAt : null };
-    }));
+    // نجلب فهرس الامتحانات وكل الأسئلة الجاهزة مرة واحدة فقط بدل استدعاء
+    // getQuestionsByTopic لكل موضوع على حدة (كان يعيد قراءة كل الامتحانات من
+    // جديد في كل مرة، أي عشرات المرات في هذه الشاشة وحدها).
+    const fullsForTopics = await Promise.all(idx.map(e=>getExam(e.id)));
+    const seenIds = new Set();
+    const readyCountByTopic = {};
+    idx.forEach((e,i)=>{
+      const full = fullsForTopics[i];
+      if(!full || !Array.isArray(full.questions)) return;
+      full.questions.forEach(q=>{
+        const t=(q.topic||'').trim();
+        if(t && isQuestionReady(q) && !seenIds.has(q.id)){
+          seenIds.add(q.id);
+          readyCountByTopic[t]=(readyCountByTopic[t]||0)+1;
+        }
+      });
+    });
+    const bestScoresForTopics = await Promise.all(topics.map(t=>getBestScore('topic:'+t)));
+    const topicsWithCount = topics.map((t,i)=>{
+      const count = readyCountByTopic[t]||0;
+      const best = bestScoresForTopics[i];
+      return { label:t, badge:'📖', sub:count+' سؤال', value:t, _count:count, _lastSolvedAt: best && best.lastSolvedAt ? best.lastSolvedAt : null };
+    });
     /* ترتيب المواضيع: غير المنجزة أولا (حسب عدد الأسئلة تنازليا)، ثم المنجزة مرتبة من الأقدم
        إنجازا إلى الأحدث، بحيث يظهر آخر موضوع تم إنجازه في آخر القائمة. */
     topicsWithCount.sort((a,b)=>{
@@ -6918,9 +6991,12 @@ async function renderUserDash(){
       listEl.innerHTML = `<div class="empty">${ic.empty}<div>لا يوجد امتحان مطابق لهذه المادة.</div></div>`;
       return;
     }
+    // جلب أفضل النتائج لكل الامتحانات دفعة واحدة (بالتوازي) بدل قراءة كل امتحان
+    // على حدة بشكل متسلسل، لتفادي بطء الاستجابة عند عرض القائمة.
+    const bestScores = await Promise.all(matched.map(e=>getBestScore(e.id)));
     let html = '';
-    for(const e of matched){
-      const best = await getBestScore(e.id);
+    matched.forEach((e,i)=>{
+      const best = bestScores[i];
       html += `
         <button class="choice-card" data-start="${e.id}">
           <span class="badge2">📝</span>
@@ -6928,7 +7004,7 @@ async function renderUserDash(){
             <span>${e.count} سؤال${best? ' · أفضل نتيجة: '+best.score+'/'+best.total : ''}</span>
           </span>
         </button>`;
-    }
+    });
     listEl.innerHTML = html;
     listEl.querySelectorAll('[data-start]').forEach(n=>{
       n.onclick = async ()=>{
@@ -6996,6 +7072,10 @@ async function renderUserDash(){
       <div class="path-wrap"><svg class="path-svg" id="pathSvg"></svg><div id="yearPath">جارٍ التحميل...</div></div>
     </div>`;
     const pathEl = document.getElementById('yearPath');
+    // جلب كل النتائج دفعة واحدة (بالتوازي) بدل قراءة كل امتحان على حدة داخل
+    // حلقتين متداخلتين متسلسلتين، لتفادي بطء ظهور قائمة السنوات.
+    const bestScoresList = await Promise.all(matched.map(e=>getBestScore(e.id)));
+    const bestByExamId = new Map(matched.map((e,i)=>[e.id, bestScoresList[i]]));
     let html = '';
     let sideIdx = 0;
     for(const y of years){
@@ -7003,7 +7083,7 @@ async function renderUserDash(){
       let solved = false;
       let lastSolvedAt = null;
       for(const e of examsForYear){
-        const best = await getBestScore(e.id);
+        const best = bestByExamId.get(e.id);
         if(best){
           solved = true;
           const candidate = best.lastSolvedAt || best.date;
@@ -7054,9 +7134,11 @@ async function renderUserDash(){
       listEl.innerHTML = `<div class="empty">${ic.empty}<div>لا يوجد امتحان مطابق لهذا الاختيار.</div></div>`;
       return;
     }
+    // جلب أفضل النتائج بالتوازي بدل التسلسل لتسريع عرض القائمة.
+    const bestScores = await Promise.all(matched.map(e=>getBestScore(e.id)));
     let html = '';
-    for(const e of matched){
-      const best = await getBestScore(e.id);
+    matched.forEach((e,i)=>{
+      const best = bestScores[i];
       html += `
         <button class="choice-card" data-start="${e.id}">
           <span class="badge2">📝</span>
@@ -7064,7 +7146,7 @@ async function renderUserDash(){
             <span>${e.count} سؤال${best? ' · أفضل نتيجة: '+best.score+'/'+best.total : ''}</span>
           </span>
         </button>`;
-    }
+    });
     listEl.innerHTML = html;
     listEl.querySelectorAll('[data-start]').forEach(n=>{
       n.onclick = async ()=>{
@@ -7120,15 +7202,15 @@ async function renderUserStatsByTopic(){
   // إعادة بناء فهرس المواضيع قبل عرض الإحصائيات لضمان ظهور آخر التعديلات فوراً.
   try{
     const idx = await getExamIndex();
+    const fulls = await Promise.all(idx.map(item=>getExam(item.id)));
     const topicsSet = new Set();
-    for(const item of idx){
-      const full = await getExam(item.id);
-      if(!full || !Array.isArray(full.questions)) continue;
+    fulls.forEach(full=>{
+      if(!full || !Array.isArray(full.questions)) return;
       full.questions.forEach(q=>{
         const t = (q.topic || '').trim();
         if(t) topicsSet.add(t);
       });
-    }
+    });
     await storageSet('topics-index', JSON.stringify([...topicsSet]), true);
   }catch(e){
     console.warn('Topic statistics refresh failed:', e);
