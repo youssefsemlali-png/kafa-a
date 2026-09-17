@@ -44,7 +44,8 @@
   body.dark-mode .screen, body.dark-mode .topbar, body.dark-mode .role-card, body.dark-mode .matCard,
   body.dark-mode .choice-card, body.dark-mode .exam-row, body.dark-mode .legalTextRow, body.dark-mode .wrong-item,
   body.dark-mode .review-priority-material, body.dark-mode .review-calendar-item, body.dark-mode .review-calendar-box,
-  body.dark-mode .field, body.dark-mode .result-wrap, body.dark-mode .law-match-target, body.dark-mode .law-drag-btn{
+  body.dark-mode .field, body.dark-mode .result-wrap, body.dark-mode .law-match-target, body.dark-mode .law-drag-btn,
+  body.dark-mode .q-text{
     background:var(--dark-card);color:var(--dark-text);border-color:var(--dark-line);
   }
   body.dark-mode input, body.dark-mode select, body.dark-mode textarea{background:var(--dark-card-2);color:var(--dark-text);border-color:var(--dark-line);}
@@ -56,6 +57,7 @@
   body.dark-mode .law-match-target{background:var(--dark-card-2)!important;color:var(--dark-text)!important;}
   body.dark-mode .splash-screen{background:var(--dark-bg);}
   body.dark-mode .action-btn, body.dark-mode .search-action-btn{background:var(--dark-card);color:var(--dark-text);border-color:var(--dark-line);}
+  body.dark-mode .review-opt{background:var(--dark-card-2);color:var(--dark-text);border-color:var(--dark-line);}
 
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;height:100%;height:calc(var(--app-height, 100%));overscroll-behavior-y:none;overscroll-behavior-x:none;position:fixed;inset:0;width:100%;}
@@ -6982,8 +6984,10 @@ async function renderUserDash(){
     topicsWithCount.sort((a,b)=> b._count - a._count || a.label.localeCompare(b.label,'ar'));
     const countExamIdx = idx.filter(e=> e.examType==='إختبار خاص بعدد المرات');
     const countQuestionsTotal = countExamIdx.reduce((sum,e)=> sum + (e.count||0), 0);
+    const countBest = countExamIdx.length ? await getBestScore('count-exams-combined') : null;
+    const countPct = countBest && countBest.total ? Math.round((countBest.score/countBest.total)*100) : 0;
     const listWithCountEntry = countExamIdx.length
-      ? [{label:'عدد المرات', badge:'🔢', sub: countQuestionsTotal+' سؤال', value:'__count_exam__'}, ...topicsWithCount]
+      ? [{label:'عدد المرات', badge:countPct+'%', badgeStyle:'font-size:14px;', sub: countQuestionsTotal+' سؤال', value:'__count_exam__'}, ...topicsWithCount]
       : topicsWithCount;
     renderChoiceScreen('قائمة المواضيع', listWithCountEntry, async (c)=>{
       if(c.value==='__count_exam__'){ await startCountUserQuiz(); return; }
