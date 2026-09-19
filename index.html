@@ -45,19 +45,23 @@
   body.dark-mode .choice-card, body.dark-mode .exam-row, body.dark-mode .legalTextRow, body.dark-mode .wrong-item,
   body.dark-mode .review-priority-material, body.dark-mode .review-calendar-item, body.dark-mode .review-calendar-box,
   body.dark-mode .field, body.dark-mode .result-wrap, body.dark-mode .law-match-target, body.dark-mode .law-drag-btn,
-  body.dark-mode .q-text{
+  body.dark-mode .q-text, body.dark-mode .secondary-btn, body.dark-mode .save-bar, body.dark-mode .home-nav-bar,
+  body.dark-mode .home-view, body.dark-mode .home-view .home-screen{
     background:var(--dark-card);color:var(--dark-text);border-color:var(--dark-line);
   }
   body.dark-mode input, body.dark-mode select, body.dark-mode textarea{background:var(--dark-card-2);color:var(--dark-text);border-color:var(--dark-line);}
   body.dark-mode .muted, body.dark-mode .screen-subtitle, body.dark-mode .matCount, body.dark-mode .info span, body.dark-mode .splash-sub{color:var(--dark-muted);}
   body.dark-mode .answer-opt{background:var(--dark-card);border-color:var(--dark-line);color:var(--dark-text);}
   body.dark-mode .answer-opt.selected{background:#3A1E2B;}
-  body.dark-mode .primary-btn, body.dark-mode .secondary-btn, body.dark-mode .qeditor-btn{color:var(--dark-text);}
+  body.dark-mode .primary-btn, body.dark-mode .qeditor-btn{color:var(--dark-text);}
   body.dark-mode .law-drag-btn{background:var(--dark-card-2)!important;color:var(--dark-text)!important;}
   body.dark-mode .law-match-target{background:var(--dark-card-2)!important;color:var(--dark-text)!important;}
   body.dark-mode .splash-screen{background:var(--dark-bg);}
   body.dark-mode .action-btn, body.dark-mode .search-action-btn{background:var(--dark-card);color:var(--dark-text);border-color:var(--dark-line);}
   body.dark-mode .review-opt{background:var(--dark-card-2);color:var(--dark-text);border-color:var(--dark-line);}
+  body.dark-mode .icon-btn{background:var(--dark-card-2);color:var(--dark-text);}
+  body.dark-mode .home-nav-item{color:var(--dark-muted);}
+  body.dark-mode .home-nav-item.active{color:var(--dark-text);}
 
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;height:100%;height:calc(var(--app-height, 100%));overscroll-behavior-y:none;overscroll-behavior-x:none;position:fixed;inset:0;width:100%;}
@@ -837,7 +841,7 @@ function _getParentNavigation(){
       case 'scale': un.scale=null; return {screen:'user-dash', step:'category'};
       case 'year': un.year=null; return {screen:'user-dash', step:'scale'};
       case 'exam': un.year=null; return {screen:'user-dash', step:'year'};
-      case 'topic': return {screen:'user-dash', step:'type'};
+      case 'topic': return un.topicEnteredFrom==='home' ? {screen:'home'} : {screen:'user-dash', step:'type'};
       case 'deadline-material': return {screen:'user-dash', step:'type'};
       case 'deadline-exam': un.material=null; return {screen:'user-dash', step:'deadline-material'};
       case 'stats-topic': return {screen:'user-dash', step:'stats'};
@@ -874,7 +878,7 @@ function _getParentNavigation(){
     'legal-texts':'legal-refs',
     'legal-summaries':'legal-refs',
     'legal-search':'home',
-    'review-programs':'home',
+    'review-programs':'legal-refs',
     'review-program-detail':'review-programs',
     'review-program-reminder':'review-programs',
     'review-program-calendar':'home',
@@ -937,7 +941,7 @@ let currentExamStartTime = 0;
 let sessionStartTime = Date.now();
 let isAppHidden = false;
 
-function resetUserNav(){ userNav = { step:'type', examType:null, category:null, scale:null, year:null, topic:null, material:null, statsEnteredFrom:null }; }
+function resetUserNav(){ userNav = { step:'type', examType:null, category:null, scale:null, year:null, topic:null, material:null, statsEnteredFrom:null, topicEnteredFrom:null }; }
 
 /* ---------------- ترتيب الاختيارات ---------------- */
 /* تم إلغاء الخلط العشوائي للاختيارات: يتم الاحتفاظ بترتيبها الأصلي كما أُدخلت
@@ -2139,20 +2143,14 @@ async function renameTopicInIndex(oldName, newName){
   }
 }
 
-async function getTopicsIndexSortedByUsage(){
+/* المواضيع مرتبة أبجدياً (أ ب ت ث ...) لقائمة اختيار موضوع السؤال.
+   يُتجاهل أداة التعريف «ال» في بداية الاسم عند الترتيب (كما في المعاجم والفهارس)،
+   وتُعتبر الألف بأشكالها (أ إ آ ا) حرفاً واحداً. */
+async function getTopicsIndexSortedAlphabetically(){
   const list = await getTopicsIndex();
-  const counts = {};
-  list.forEach(t=>{ counts[t] = 0; });
-  const idx = await getExamIndex();
-  const exams = await Promise.all(idx.map(item=>getExam(item.id)));
-  exams.forEach(exam=>{
-    if(!exam || !Array.isArray(exam.questions)) return;
-    exam.questions.forEach(q=>{
-      const t = (q.topic||'').trim();
-      if(t){ counts[t] = (counts[t]||0) + 1; }
-    });
-  });
-  return [...list].sort((a,b)=> (counts[b]||0) - (counts[a]||0));
+  const collator = new Intl.Collator('ar', { sensitivity:'base', numeric:true });
+  const key = t => String(t||'').trim().replace(/^ال(?=\S)/, '');
+  return [...list].sort((a,b)=> collator.compare(key(a), key(b)) || collator.compare(a, b));
 }
 
 /* ---------------- برامج المراجعة (Review Programs) ---------------- */
@@ -2640,7 +2638,8 @@ const ic = {
   search:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>`,
   stats:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10"/><path d="M12 20V4"/><path d="M20 20v-7"/></svg>`,
   settings:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>`,
-  moon:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 15.5A8.5 8.5 0 019.5 4.5a8.6 8.6 0 1011 11z"/></svg>`
+  moon:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 15.5A8.5 8.5 0 019.5 4.5a8.6 8.6 0 1011 11z"/></svg>`,
+  exam:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 3v2h6V3"/><path d="M8.5 11.5l2 2 4-4"/><path d="M8 16h8"/></svg>`
 };
 
 /* ---------------- Render Router ---------------- */
@@ -2700,6 +2699,7 @@ function renderLegalRefs(){
   renderChoiceScreen('المراجع القانونية', [
     {label:'النصوص القانونية', badge:'📜', value:'legal-texts'},
     {label:'ملخصات وخطاطات', badge:'🗂️', value:'legal-summaries'},
+    {label:'برامج المراجعة', badge:'📋', value:'review-programs'},
     {label:'المراجعة', badge:'🔄', value:'legal-review'}
   ], (c)=>{
     if(c.value==='legal-texts') legalTextsNav = { screen:'materials', material:null };
@@ -2855,7 +2855,6 @@ async function renderReviewProgramsView(preservePriorityFilter=''){
             <span class="matBackBtn" aria-hidden="true">${ic.back}</span>
             <div class="matBody">
               <h3>${esc(p.name)}</h3>
-              ${p.lastReview ? `<p class="matCount"><span class="lastReviewText">آخر مراجعة ${formatArabicDateTime(p.lastReview)}</span></p>` : ''}
             </div>
           </div>
         </button>`;
@@ -2984,7 +2983,7 @@ async function renderReviewProgramCalendar(){
   <div class="topbar"><button class="home-btn" id="goHome" title="الرئيسية">${ic.home}</button><h2>رزنامة</h2><button class="exit-btn" id="exitHome" title="الخروج">${ic.exit}</button></div>
   <div class="screen" style="padding-bottom:110px;">
     ${programs.length ? `<div class="review-calendar-list">${programs.map(p=>`<div class="review-calendar-item"><div class="rci-info"><strong>${esc(p.name)}</strong><div class="rci-date">${formatReminderDateTime(p.reminder.at)}</div></div><div class="rci-actions"><button class="review-reminder-btn active" data-cal-reminder="${esc(p.id)}" title="تعديل التنبيه">${ic.alarmClock}</button></div></div>`).join('')}</div>` : `<div class="empty">${ic.empty}<div>لا توجد برامج تم تفعيل التنبيه بها بعد.</div></div>`}
-    <div class="row-btns" style="margin-top:18px;"><button class="secondary-btn" id="backReviewPrograms">العودة إلى برامج المراجعة</button></div>
+    <div class="row-btns" style="margin-top:18px;"><button class="secondary-btn" id="backReviewPrograms">برامج المراجعة</button></div>
   </div>`;
   document.getElementById('backReviewPrograms').onclick=()=>{state={screen:'review-programs'};render();};
   document.querySelectorAll('[data-cal-reminder]').forEach(btn=>btn.onclick=()=>{state={screen:'review-program-reminder',programId:btn.dataset.calReminder};render();});
@@ -4147,10 +4146,10 @@ function renderHome(){
   </div>
   <div class="home-nav-bar">
     <button class="home-nav-item" id="homeNavSearch">${ic.search}<span>بحث</span></button>
-    <button class="home-nav-item" id="homeNavTopics">${ic.file}<span>مواضيع</span></button>
-    <button class="home-nav-item" id="homeNavPrograms">${ic.topic}<span>برامج</span></button>
-    <button class="home-nav-item" id="homeNavCalendar">${ic.alarmClock}<span>رزنامة</span></button>
     <button class="home-nav-item" id="homeNavStats">${ic.stats}<span>إحصائيات</span></button>
+    <button class="home-nav-item" id="homeNavTopics">${ic.file}<span>مواضيع</span></button>
+    <button class="home-nav-item" id="homeNavCalendar">${ic.alarmClock}<span>رزنامة</span></button>
+    <button class="home-nav-item" id="homeNavExams">${ic.exam}<span>اختبارات</span></button>
     <button class="home-nav-item" id="homeNavSettings">${ic.settings}<span>إعدادات</span></button>
   </div>
   </div>`;
@@ -4160,9 +4159,9 @@ function renderHome(){
 
   document.getElementById('homeNavSearch').onclick=()=>{ legalSearchState = { term:'', results:null }; state={screen:'legal-search'}; render(); };
   document.getElementById('homeNavTopics').onclick=()=>{ adminTopicsEnteredFrom='home'; state={screen:'admin-topics'}; render(); };
-  document.getElementById('homeNavPrograms').onclick=()=>{ state={screen:'review-programs'}; render(); };
   document.getElementById('homeNavCalendar').onclick=()=>{ state={screen:'review-program-calendar'}; render(); };
   document.getElementById('homeNavStats').onclick=()=>{ resetUserNav(); userNav.step='stats'; userNav.statsEnteredFrom='home'; state={screen:'user-dash'}; render(); };
+  document.getElementById('homeNavExams').onclick=()=>{ resetUserNav(); userNav.step='topic'; userNav.topicEnteredFrom='home'; state={screen:'user-dash'}; render(); };
   document.getElementById('homeNavSettings').onclick=()=>{ state={screen:'home-settings'}; render(); };
 }
 
@@ -4711,6 +4710,17 @@ function _refreshMaterialRows(container){
   });
 }
 
+/* يضبط الحاشية السفلية للشاشة حسب الارتفاع الفعلي للشريط السفلي الثابت (save-bar)
+   حتى لا تحجب أزراره آخر محتوى الصفحة، مهما كان عدد الأزرار أو حجم الشاشة. */
+function fitScreenToSaveBar(){
+  const bar = app.querySelector('.save-bar');
+  const scr = app.querySelector('.screen');
+  if(!bar || !scr) return;
+  const apply = ()=>{ scr.style.paddingBottom = (bar.offsetHeight + 16) + 'px'; };
+  apply();
+  if(window.ResizeObserver){ try{ new ResizeObserver(apply).observe(bar); }catch(e){} }
+}
+
 async function renderAdminReviewProgramAdd(){
   let programTypes = await getReviewProgramTypes();
   const existingProgramNames = [...new Set((await getReviewPrograms()).map(p=>p.name).filter(Boolean))];
@@ -4746,6 +4756,8 @@ async function renderAdminReviewProgramAdd(){
       <span class="action-icon">${ic.trash}</span> حذف البرنامج
     </button>
   </div>`;
+
+  fitScreenToSaveBar();
 
   const typeSelect = document.getElementById('reviewProgramType');
   const container = document.getElementById('materialsContainer');
@@ -4933,6 +4945,7 @@ async function renderAdminReviewPrograms(){
     </button>
   </div>`;
 
+  fitScreenToSaveBar();
   document.getElementById('addReviewProgramBtn').onclick=()=>{ state={screen:'admin-review-program-add'}; render(); };
 
   const programs = (await getReviewPrograms()).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ar',{sensitivity:'base'}));
@@ -4941,20 +4954,13 @@ async function renderAdminReviewPrograms(){
     areaEl.innerHTML = `<div class="empty">${ic.empty}<div>لا توجد برامج مراجعة بعد.<br>أضف برنامجاً وحدد مواده للبدء.</div></div>`;
     return;
   }
-  const programsWithProgress = await Promise.all(programs.map(async p=>{
-    const progress = await getReviewProgress(p.id);
-    const times = Object.values(progress).sort();
-    return { ...p, lastReview: times.length ? times[times.length-1] : null };
-  }));
-  areaEl.innerHTML = `<div class="matCardsWrap">${programsWithProgress.map(p=>{
-    const count = (p.materials||[]).length;
+  areaEl.innerHTML = `<div class="matCardsWrap">${programs.map(p=>{
     return `
     <button class="matCard plain" data-prog="${esc(p.id)}">
       <div class="matTop">
         <span class="matBackBtn">${ic.back}</span>
         <div class="matBody">
           <h3>${esc(p.name)}</h3>
-          <p class="matCount">${count} مادة${p.lastReview ? ` · <span class="lastReviewText">آخر مراجعة ${formatArabicDateTime(p.lastReview)}</span>` : ''}</p>
         </div>
       </div>
     </button>`;
@@ -6623,7 +6629,7 @@ async function renderAdminQuestionEditor(){
   const qi = questionEditorIndex;
   const q = d.questions[qi];
   if(!q){ state={screen:'admin-editor'}; render(); return; }
-  const topicsList = await getTopicsIndexSortedByUsage();
+  const topicsList = await getTopicsIndexSortedAlphabetically();
   const lockIdx = q.lockLastOption ? q.options.length-1 : -1;
   const isDeadlineExam = d.examType === 'اختبار الآجال';
   const inTopicQueue = previousEditorSource==='admin-topic-categories' && !!topicReviewMeta && Array.isArray(topicReviewQueue);
@@ -6923,7 +6929,7 @@ async function renderUserDash(){
       {label:'اختبارات القوانين', badge:'📜', value:'__law_exams__'},
       {label:'الإحصائيات', badge:'📊', value:'__stats__'}
     ], async (c)=>{
-      if(c.value==='__by_topic__'){ userNav.step = 'topic'; render(); return; }
+      if(c.value==='__by_topic__'){ userNav.step = 'topic'; userNav.topicEnteredFrom = 'type'; render(); return; }
       if(c.value==='__deadline__'){ userNav.step = 'deadline-material'; render(); return; }
       if(c.value==='__law_exams__'){ await startLawUserQuiz(); return; }
       if(c.value==='__stats__'){ userNav.step = 'stats'; userNav.statsEnteredFrom = 'type'; render(); return; }
@@ -6978,10 +6984,10 @@ async function renderUserDash(){
       const count = readyCountByTopic[t]||0;
       const best = bestScoresForTopics[i];
       const pct = best && best.total ? Math.round((best.score/best.total)*100) : 0;
-      return { label:t, badge:pct+'%', badgeStyle:'font-size:14px;', sub:count+' سؤال', value:t, _count:count, _lastSolvedAt: best && best.lastSolvedAt ? best.lastSolvedAt : null };
+      return { label:t, badge:pct+'%', badgeStyle:'font-size:14px;', sub:count+' سؤال', value:t, _count:count, _pct:pct, _lastSolvedAt: best && best.lastSolvedAt ? best.lastSolvedAt : null };
     });
-    // ترتيب المواضيع تنازليا حسب عدد الأسئلة، ثم أبجديا عند التساوي.
-    topicsWithCount.sort((a,b)=> b._count - a._count || a.label.localeCompare(b.label,'ar'));
+    // ترتيب المواضيع تنازليا حسب نسبة الأسئلة الصحيحة، ثم أبجديا عند التساوي.
+    topicsWithCount.sort((a,b)=> b._pct - a._pct || a.label.localeCompare(b.label,'ar'));
     const countExamIdx = idx.filter(e=> e.examType==='إختبار خاص بعدد المرات');
     const countQuestionsTotal = countExamIdx.reduce((sum,e)=> sum + (e.count||0), 0);
     const countBest = countExamIdx.length ? await getBestScore('count-exams-combined') : null;
@@ -6994,7 +7000,7 @@ async function renderUserDash(){
       const questions = await getQuestionsByTopic(c.value);
       if(!questions.length){ showToast('لا توجد أسئلة لهذا الموضوع بعد'); return; }
       await startTopicExam(c.value, questions);
-    }, ()=>{ userNav.step='type'; render(); }, {bottomBack:true});
+    }, ()=>{ if(userNav.topicEnteredFrom==='home'){ state={screen:'home'}; } else { userNav.step='type'; } render(); }, {bottomBack:true});
     return;
   }
 
