@@ -1770,7 +1770,6 @@ async function buildBackupPackage() {
   const legalTexts = await getLegalTextsWithFiles();
   const legalSummaries = await getLegalSummariesWithFiles();
   const reviewPrograms = await getReviewPrograms();
-  const legalLinks = await getLegalLinks();
   return {
     version: 1,
     timestamp: Date.now(),
@@ -1780,8 +1779,7 @@ async function buildBackupPackage() {
     legalMaterials,
     legalTexts,
     legalSummaries,
-    reviewPrograms,
-    legalLinks
+    reviewPrograms
   };
 }
 
@@ -1815,9 +1813,6 @@ async function importBackupData(dataPackage) {
   }
   if(dataPackage.reviewPrograms) {
     await saveReviewPrograms(dataPackage.reviewPrograms);
-  }
-  if(dataPackage.legalLinks) {
-    await saveLegalLinks(dataPackage.legalLinks);
   }
   await mergeTopicExamsIfNeeded();
   // بعد الاستيراد نعتمد على الأسئلة الفعلية لإعادة بناء فهرس المواضيع،
@@ -1887,9 +1882,8 @@ async function importBackupJSON(file) {
 }
 
 /* ---------------- نسخة بيانات المستخدم (النتائج والإحصائيات والأجوبة والتقدم) ---------------- */
-/* منفصلة عن نسخة المحتوى (الامتحانات والنصوص القانونية) أعلاه. تشمل كل ما هو منبثق عن فضاء
-   الامتحانات (المساحة الشخصية shared=false)، أي كل مفتاح شخصي باستثناء الإعدادات/السجلات
-   الداخلية البحتة المذكورة في USER_DATA_EXCLUDE_KEYS أدناه. من بين ما تشمله حالياً:
+/* منفصلة عن نسخة المحتوى (الامتحانات والنصوص القانونية) أعلاه. تشمل فقط بيانات المستخدم الشخصية
+   المخزّنة في المساحة الشخصية (shared=false):
    - best-score:*            نتائج وإحصائيات كل امتحان
    - quiz-progress:*         الأجوبة والسؤال الذي وصل إليه المستخدم في كل امتحان قيد الحل
    - topic-parts-progress:*  الجزء الذي وصل إليه في اختبارات المواضيع المقسّمة
@@ -1898,39 +1892,37 @@ async function importBackupJSON(file) {
    - legal-texts-read        النصوص القانونية المقروءة
    - settings:total-app-time الوقت الإجمالي المقضي في التطبيق
    - settings:dark-mode      الوضع المظلم
-   وأي مفتاح شخصي آخر يُضاف مستقبلاً في فضاء الامتحانات يُدرَج تلقائياً دون الحاجة لتعديل هذه القائمة.
    ملاحظة: نستعمل نص المفتاح مباشرة (وليس الثابت WRONG_REVIEW_KEY) لأن ذلك الثابت يُعرَّف لاحقاً في الملف. */
 const USER_DATA_BACKUP_TYPE = 'examapp-user-data';
 const USER_DATA_BACKUP_VERSION = 1;
 const USER_DATA_PREFIXES = ['best-score:','quiz-progress:','topic-parts-progress:','review-progress:'];
 const USER_DATA_EXACT_KEYS = ['review-wrong-questions','legal-texts-read','settings:total-app-time','settings:dark-mode'];
-/* مفاتيح شخصية داخلية بحتة (إعدادات جهاز/سجلات عمليات) وليست من بيانات فضاء الامتحانات نفسه،
-   فتُستثنى من نسخة بيانات المستخدم. */
-const USER_DATA_EXCLUDE_KEYS = ['settings:last-update','settings:last-backup-io','settings:last-userdata-io','settings:drive-gmail','__deadline_topics_backfilled__'];
 
 function isUserDataKey(k){
-  if(typeof k!=='string' || !k) return false;
-  return !USER_DATA_EXCLUDE_KEYS.includes(k);
+  if(typeof k!=='string') return false;
+  if(USER_DATA_EXACT_KEYS.includes(k)) return true;
+  return USER_DATA_PREFIXES.some(p=>k.length>p.length && k.startsWith(p));
 }
 function _isPlainObj(v){ return v!==null && typeof v==='object' && !Array.isArray(v); }
 
 /* فحص شكل القيمة قبل كتابتها، لأن أجزاء من التطبيق تقرأها بـ JSON.parse دون حماية
-   وقيمة تالفة قد تعطّل شاشة الإحصائيات أو الاستئناف. المفاتيح المعروفة تخضع لفحص دقيق حسب
-   شكلها المتوقع؛ أي مفتاح آخر (حالي أو يُضاف مستقبلاً) يُقبل طالما كان JSON صالحاً. */
+   وقيمة تالفة قد تعطّل شاشة الإحصائيات أو الاستئناف. */
 function validateUserDataValue(key, v){
   if(key==='settings:dark-mode') return v===0 || v===1;
   if(key==='settings:total-app-time') return typeof v==='number' && isFinite(v) && v>=0;
   if(key==='legal-texts-read' || key==='review-wrong-questions') return Array.isArray(v);
   if(key.startsWith('quiz-progress:')) return _isPlainObj(v) && Array.isArray(v.answers);
   if(key.startsWith('best-score:')) return _isPlainObj(v) && isFinite(Number(v.score)) && isFinite(Number(v.total));
-  if(key.startsWith('topic-parts-progress:') || key.startsWith('review-progress:')) return _isPlainObj(v);
-  return true; // أي مفتاح شخصي آخر من فضاء الامتحانات: يكفي أن يكون JSON صالحاً
+  return _isPlainObj(v); // topic-parts-progress:* و review-progress:*
 }
 
 async function listUserDataKeys(){
-  const all = await storageListKeys('', false);
   const keys = [];
-  (all||[]).forEach(k=>{ if(isUserDataKey(k) && !keys.includes(k)) keys.push(k); });
+  for(const p of USER_DATA_PREFIXES){
+    const list = await storageListKeys(p, false);
+    (list||[]).forEach(k=>{ if(isUserDataKey(k) && !keys.includes(k)) keys.push(k); });
+  }
+  USER_DATA_EXACT_KEYS.forEach(k=>{ if(!keys.includes(k)) keys.push(k); });
   return keys;
 }
 
@@ -1956,9 +1948,6 @@ function summarizeUserData(entries){
   const wrong = entries['review-wrong-questions'];
   const read = entries['legal-texts-read'];
   const t = entries['settings:total-app-time'];
-  const knownExact = ['review-wrong-questions','legal-texts-read','settings:total-app-time','settings:dark-mode'];
-  const knownPrefixes = ['best-score:','quiz-progress:','topic-parts-progress:','review-progress:'];
-  const other = keys.filter(k=>!knownExact.includes(k) && !knownPrefixes.some(p=>k.startsWith(p))).length;
   return {
     results: count('best-score:'),
     inProgress: count('quiz-progress:'),
@@ -1966,8 +1955,7 @@ function summarizeUserData(entries){
     reviewPrograms: count('review-progress:'),
     wrongQuestions: Array.isArray(wrong) ? wrong.length : 0,
     readTexts: Array.isArray(read) ? read.length : 0,
-    totalTimeMs: typeof t==='number' ? t : 0,
-    other
+    totalTimeMs: typeof t==='number' ? t : 0
   };
 }
 
@@ -2047,7 +2035,6 @@ async function restoreUserData(parsed){
     `• ${s.inProgress} امتحان قيد الحل (أجوبة محفوظة)\n`+
     `• ${s.wrongQuestions} سؤال في قائمة الأخطاء\n`+
     (s.totalTimeMs ? `• الوقت الإجمالي في التطبيق: ${formatDurationArabic(s.totalTimeMs)}\n` : '')+
-    (s.other ? `• ${s.other} عنصر إضافي آخر من بيانات فضاء الامتحانات\n` : '')+
     `\nلا يمكن التراجع عن هذا الإجراء. هل تريد المتابعة؟`;
   if(!confirm(msg)) return false;
 
@@ -5935,8 +5922,8 @@ async function renderAdminCountQuestionEntry(){
     const optList = document.getElementById('countOptList');
     optList.innerHTML = COUNT_EXAM_OPTIONS.map((val,i)=>`
       <div class="opt-row" data-setcorrect="${i}" style="cursor:pointer;">
-        <div style="padding:10px 4px;font-weight:700;">${esc(val)}</div>
         <div class="opt-radio ${qd.correctIndex===i?'checked':''}"></div>
+        <div style="padding:10px 4px;font-weight:700;">${esc(val)}</div>
       </div>`).join('');
 
     optList.querySelectorAll('[data-setcorrect]').forEach(el=>{
@@ -7237,8 +7224,8 @@ async function renderAdminQuestionEditor(){
       <label>موضوع السؤال</label>
       <div style="display:flex;gap:8px;align-items:center;">
         <select id="qTopicSelect" dir="rtl" style="flex:1;" required>
-          <option value="" dir="rtl">اختر ...</option>
-          ${topicsList.map(t=>`<option value="${esc(t)}" dir="rtl" ${q.topic===t?'selected':''}>${esc(t)}</option>`).join('')}
+          <option value="">اختر ...</option>
+          ${topicsList.map(t=>`<option value="${esc(t)}" ${q.topic===t?'selected':''}>${esc(t)}</option>`).join('')}
         </select>
         <button class="upload-btn" id="addTopicBtn" type="button" style="white-space:nowrap;margin-top:0;">+ إضافة موضوع</button>
       </div>
@@ -7391,9 +7378,9 @@ async function renderAdminQuestionEditor(){
       const isCorrect = (q.correctIndices||[]).includes(oi);
       return `
       <div class="opt-row ${isLocked?'locked':''}">
+        <div class="opt-radio ${isCorrect?'checked':''}" data-setcorrect="${oi}"></div>
         <input type="text" placeholder="الخيار ${oi+1}" data-opt="${oi}" value="${esc(opt)}" ${isLocked?'readonly':''}>
         ${isLocked ? '<span class="lock-tag">ثابت</span>' : `<div class="opt-remove" data-rmopt="${oi}">✕</div>`}
-        <div class="opt-radio ${isCorrect?'checked':''}" data-setcorrect="${oi}"></div>
       </div>`;
     }).join('');
     
