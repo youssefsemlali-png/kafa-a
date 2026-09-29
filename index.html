@@ -237,7 +237,7 @@
   .useful-links-title .bar{width:4px;height:19px;border-radius:3px;flex-shrink:0;}
   .useful-link-row{
     background:transparent;border:none;border-radius:0;
-    padding:13px 2px;display:flex;align-items:center;justify-content:space-between;
+    padding:13px 2px;display:flex;align-items:center;justify-content:flex-start;gap:12px;text-align:right;
     margin-bottom:0;cursor:pointer;
   }
   .useful-link-row .useful-link-name{font-size:14.5px;font-weight:700;color:inherit;text-decoration:none;}
@@ -882,7 +882,7 @@ function _getParentNavigation(){
       case 'year': un.year=null; return {screen:'user-dash', step:'scale'};
       case 'exam': un.year=null; return {screen:'user-dash', step:'year'};
       case 'topic': return un.topicEnteredFrom==='home' ? {screen:'home'} : {screen:'user-dash', step:'type'};
-      case 'deadline-material': return {screen:'user-dash', step:'type'};
+      case 'deadline-material': return {screen:'user-dash', step:'topic'};
       case 'deadline-exam': un.material=null; return {screen:'user-dash', step:'deadline-material'};
       case 'stats-topic': return {screen:'user-dash', step:'stats'};
       case 'stats': return un.statsEnteredFrom==='home' ? {screen:'home'} : {screen:'user-dash', step:'type'};
@@ -4813,11 +4813,11 @@ async function renderHomeUsefulLinks(){
   </div>
   <div class="screen" style="padding-bottom:40px;">
     <div class="useful-links-section">
-      <div class="useful-links-title"><span class="bar" style="background:var(--green);"></span>روابط سريعة</div>
+      <div class="useful-links-title" style="color:var(--green);"><span class="bar" style="background:var(--green);"></span>روابط سريعة</div>
       ${quick.length ? quick.map(renderRow).join('') : `<div class="empty">${ic.empty}<div>لا توجد روابط سريعة بعد.</div></div>`}
     </div>
     <div class="useful-links-section" style="margin-top:28px;">
-      <div class="useful-links-title"><span class="bar" style="background:var(--rose);"></span>المصادر الرسمية</div>
+      <div class="useful-links-title" style="color:var(--red);"><span class="bar" style="background:var(--red);"></span>المصادر الرسمية</div>
       ${official.length ? official.map(renderRow).join('') : `<div class="empty">${ic.empty}<div>لا توجد مصادر رسمية بعد.</div></div>`}
     </div>
   </div>`;
@@ -7542,13 +7542,9 @@ async function renderUserDash(){
       {label:'المباريات المهنية', badge:'🎓', value:'مباراة مهنية'},
       {label:'امتحانات الكفاءة المهنية', badge:'🎓', value:'امتحان الكفاءة المهنية'},
       {label:'اختبارات حسب المواضيع', badge:'📚', value:'__by_topic__'},
-      {label:'إختبارات الآجال', badge:'⏳', value:'__deadline__'},
-      {label:'اختبارات القوانين', badge:'📜', value:'__law_exams__'},
       {label:'الإحصائيات', badge:'📊', value:'__stats__'}
     ], async (c)=>{
       if(c.value==='__by_topic__'){ userNav.step = 'topic'; userNav.topicEnteredFrom = 'type'; render(); return; }
-      if(c.value==='__deadline__'){ userNav.step = 'deadline-material'; render(); return; }
-      if(c.value==='__law_exams__'){ await startLawUserQuiz(); return; }
       if(c.value==='__stats__'){ userNav.step = 'stats'; userNav.statsEnteredFrom = 'type'; render(); return; }
       userNav.examType = c.value;
       userNav.step = 'category';
@@ -7562,17 +7558,6 @@ async function renderUserDash(){
 
   if(userNav.step==='topic'){
     const topics = await getTopicsIndex();
-    if(!topics.length){
-      app.innerHTML = `
-      <div class="topbar">
-        <button class="home-btn" id="goHome" title="الرئيسية">${ic.home}</button>
-        <h2>قائمة المواضيع</h2>
-        <button class="exit-btn" id="exitHome" title="الخروج">${ic.exit}</button>
-      </div>
-      <div class="screen" style="padding-bottom:110px;"><div class="empty">${ic.empty}<div>لا توجد مواضيع متاحة بعد.</div></div></div>
-  `;
-      return;
-    }
     // نجلب فهرس الامتحانات وكل الأسئلة الجاهزة مرة واحدة فقط بدل استدعاء
     // getQuestionsByTopic لكل موضوع على حدة (كان يعيد قراءة كل الامتحانات من
     // جديد في كل مرة، أي عشرات المرات في هذه الشاشة وحدها).
@@ -7625,11 +7610,41 @@ async function renderUserDash(){
     const countQuestionsTotal = countExamIdx.reduce((sum,e)=> sum + (e.count||0), 0);
     const countBest = countExamIdx.length ? await getBestScore('count-exams-combined') : null;
     const countPct = countBest && countBest.total ? Math.round((countBest.score/countBest.total)*100) : 0;
+    // الآجال: مجموع الأسئلة في كل امتحانات الآجال، والنسبة المئوية محسوبة على مجموع أفضل نتائج
+    // الامتحانات التي تم حلها، وتاريخ آخر حل هو أحدث تاريخ حل بين هذه الامتحانات.
+    const deadlineExamIdx = idx.filter(e=> e.examType==='اختبار الآجال');
+    const deadlineQuestionsTotal = deadlineExamIdx.reduce((sum,e)=> sum + (e.count||0), 0);
+    const deadlineBests = await Promise.all(deadlineExamIdx.map(e=>getBestScore(e.id)));
+    let dlScore = 0, dlTotal = 0, dlLast = null;
+    deadlineBests.forEach(b=>{
+      if(!b) return;
+      dlScore += Number(b.score)||0;
+      dlTotal += Number(b.total)||0;
+      const cand = b.lastSolvedAt || b.date;
+      if(cand && (!dlLast || new Date(cand) > new Date(dlLast))) dlLast = cand;
+    });
+    const deadlinePct = dlTotal ? Math.round((dlScore/dlTotal)*100) : 0;
+    // القوانين: عدد النصوص القانونية المكتملة البيانات (نفس شرط بدء الاختبار).
+    let lawQuestionsTotal = 0;
+    allExamsIdx.forEach((e,i)=>{
+      if(e.examType!=='امتحان خاص بالقوانين') return;
+      const full = fullsForTopics[i];
+      if(!full || !Array.isArray(full.questions)) return;
+      lawQuestionsTotal += full.questions.filter(q=> (q.lawText || q.text || '').trim() && (q.lawNumber || '').trim() && (q.issueDate || '').trim()).length;
+    });
+    const lawBest = await getBestScore('law-exams-combined');
+    const lawPct = lawBest && lawBest.total ? Math.round((lawBest.score/lawBest.total)*100) : 0;
+    const specialEntries = [
+      {label:'الآجال', badge:deadlinePct+'%', badgeStyle:'font-size:14px;', sub: deadlineQuestionsTotal+' سؤال', value:'__deadline__', lastSolvedText: dlLast ? timeAgoArabic(dlLast) : ''},
+      {label:'القوانين', badge:lawPct+'%', badgeStyle:'font-size:14px;', sub: lawQuestionsTotal+' سؤال', value:'__law_exams__', lastSolvedText: lawBest && lawBest.lastSolvedAt ? timeAgoArabic(lawBest.lastSolvedAt) : ''}
+    ];
     const listWithCountEntry = countExamIdx.length
-      ? [{label:'عدد المرات', badge:countPct+'%', badgeStyle:'font-size:14px;', sub: countQuestionsTotal+' سؤال', value:'__count_exam__'}, ...topicsWithCount]
-      : topicsWithCount;
+      ? [{label:'عدد المرات', badge:countPct+'%', badgeStyle:'font-size:14px;', sub: countQuestionsTotal+' سؤال', value:'__count_exam__', lastSolvedText: countBest && countBest.lastSolvedAt ? timeAgoArabic(countBest.lastSolvedAt) : ''}, ...specialEntries, ...topicsWithCount]
+      : [...specialEntries, ...topicsWithCount];
     renderChoiceScreen('قائمة المواضيع', listWithCountEntry, async (c)=>{
       if(c.value==='__count_exam__'){ await startCountUserQuiz(); return; }
+      if(c.value==='__deadline__'){ userNav.step = 'deadline-material'; render(); return; }
+      if(c.value==='__law_exams__'){ await startLawUserQuiz(); return; }
       const questions = await getQuestionsByTopic(c.value);
       if(!questions.length){ showToast('لا توجد أسئلة لهذا الموضوع بعد'); return; }
       if(c._isPart){
@@ -7652,10 +7667,10 @@ async function renderUserDash(){
       app.innerHTML = `
       <div class="topbar">
         <button class="home-btn" id="goHome" title="الرئيسية">${ic.home}</button>
-        <h2>اختبارات الآجال</h2>
+        <h2>الآجال</h2>
         <button class="exit-btn" id="exitHome" title="الخروج">${ic.exit}</button>
       </div>
-      <div class="screen" style="padding-bottom:110px;"><div class="empty">${ic.empty}<div>لا توجد مواد متاحة بعد لاختبارات الآجال.</div></div></div>
+      <div class="screen" style="padding-bottom:110px;"><div class="empty">${ic.empty}<div>لا توجد مواد متاحة بعد للآجال.</div></div></div>
   `;
       return;
     }
@@ -7663,11 +7678,11 @@ async function renderUserDash(){
       const count = deadlineExams.filter(e=>e.material===m).length;
       return { label:m, badge:'⏳', sub: count+' امتحان', value:m };
     });
-    renderChoiceScreen('اختبارات الآجال - اختر المادة', materialChoices, (c)=>{
+    renderChoiceScreen('الآجال - اختر المادة', materialChoices, (c)=>{
       userNav.material = c.value;
       userNav.step = 'deadline-exam';
       render();
-    }, ()=>{ userNav.step='type'; userNav.material=null; render(); }, {bottomBack:true});
+    }, ()=>{ userNav.step='topic'; userNav.material=null; render(); }, {bottomBack:true});
     return;
   }
 
@@ -7958,6 +7973,11 @@ async function startCountUserQuiz(){
 }
 
 /* ---------------- USER LAW EXAMS QUIZ (special interface) ---------------- */
+/* يحفظ نتيجة اختبار القوانين (عدد الأسئلة المجاب عنها صحيحا من المحاولة الأولى) لعرض النسبة وتاريخ آخر حل في قائمة المواضيع. */
+async function saveLawQuizBestScore(total, buckets){
+  try{ await setBestScore('law-exams-combined', Number((buckets||{})[1])||0, Number(total)||0); }catch(e){ console.warn('law best score save failed', e); }
+}
+
 async function startLawUserQuiz(){
   // اختبارات القوانين تُحفظ في المسودات أثناء المراجعة، لذلك نقرأ جميع
   // اختبارات القوانين من الفهرس بدل الاقتصار على published=true.
@@ -7969,7 +7989,7 @@ async function startLawUserQuiz(){
   exams.filter(Boolean).forEach(ex=>{ (ex.questions||[]).forEach(q=> questions.push(tagQuestionExamInfo(q, ex))); });
   const usable = questions.filter(q => (q.lawText || q.text || '').trim() && (q.lawNumber || '').trim() && (q.issueDate || '').trim());
   if(!usable.length){ showToast('لا توجد نصوص قانونية مكتملة البيانات بعد'); return; }
-  const lawExam = { id:'law-exams-combined', title:'اختبارات القوانين', questions:usable };
+  const lawExam = { id:'law-exams-combined', title:'القوانين', questions:usable };
   lawQuizMatchState = {};
   lawQuizChoices = {};
   lawQuizAttemptStats = {};
@@ -8181,7 +8201,7 @@ function renderUserLawQuiz(){
     if(confirm('هل تريد الخروج من الامتحان؟')){ state={screen:'user-dash'}; render(); }
   };
   const lawQuizBackListBtn = document.getElementById('lawQuizBackListBtn');
-  if(lawQuizBackListBtn) lawQuizBackListBtn.onclick = ()=>{
+  if(lawQuizBackListBtn) lawQuizBackListBtn.onclick = async ()=>{
     if(quizIndex < total-1){ state={screen:'user-dash'}; render(); return; }
     const buckets = {};
     for(let i=0;i<total;i++){
@@ -8190,6 +8210,7 @@ function renderUserLawQuiz(){
       buckets[attemptNumber] = (buckets[attemptNumber]||0) + 1;
     }
     lawQuizResult = {total, buckets};
+    await saveLawQuizBestScore(total, buckets);
     state={screen:'user-result', lawQuiz:true, score:total, total, durationMs:Date.now()-currentExamStartTime};
     render();
   };
@@ -8198,7 +8219,7 @@ function renderUserLawQuiz(){
     quizIndex = Math.max(0, quizIndex - 1);
     renderUserLawQuiz();
   };
-  const goLawQuizNext = ()=>{
+  const goLawQuizNext = async ()=>{
     if(!(match.number && match.date)) return;
     if(quizIndex < total - 1){
       quizIndex = Math.min(total - 1, quizIndex + 1);
@@ -8211,6 +8232,7 @@ function renderUserLawQuiz(){
         buckets[attemptNumber] = (buckets[attemptNumber]||0) + 1;
       }
       lawQuizResult = {total, buckets};
+      await saveLawQuizBestScore(total, buckets);
       state={screen:'user-result', lawQuiz:true, score:total, total, durationMs:Date.now()-currentExamStartTime};
       render();
     }
