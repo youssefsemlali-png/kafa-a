@@ -5,7 +5,7 @@
 <title>تطبيق إمتحانات وزارة العدل</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#151515">
-<meta name="app-update-note" content="إضافة النسبة المئوية البرتقالية لخانات الفئات وترتيب الفئات هجائيا وإبقاء الفئة مفتوحة وفي وسط الشاشة عند الرجوع من موضوع">
+<meta name="app-update-note" content="جعل معطيات خانات الفئات في سطر واحد دون اقتطاع اسم الفئة على الهواتف الضيقة">
 <meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
 <meta name="googlebot" content="noindex,nofollow,noarchive,nosnippet">
 <meta name="mobile-web-app-capable" content="yes">
@@ -382,17 +382,20 @@
     transition:transform .15s ease;
   }
   .choice-card:active{transform:scale(.98);}
-  .cat-head{display:flex;align-items:center;gap:10px;margin:6px 0 12px;padding:10px 14px;border-radius:14px;background:#F1EBDF;border:1.5px solid var(--line);cursor:pointer;user-select:none;text-align:right;}
-  .cat-head strong{flex:1;font-size:15.5px;color:var(--ink);}
-  .cat-head .cat-count{font-size:12px;color:var(--muted);}
-  .cat-head .cat-arrow{font-size:12px;color:var(--muted);transition:transform .15s ease;}
+  /* خانة الفئة: كل بياناتها (السهم، الاسم، عدد المواضيع، النتيجة، النسبة) في سطر واحد دائما.
+     الأحجام والفراغات تتقلّص تدريجيا مع ضيق الشاشة (clamp) بدل اقتطاع اسم الفئة، وتبقى على قيمها الأصلية في الشاشات الواسعة. */
+  .cat-head{display:flex;flex-wrap:nowrap;align-items:center;gap:clamp(4px,1.6vw,10px);margin:6px 0 12px;padding:10px clamp(8px,2.8vw,14px);border-radius:14px;background:#F1EBDF;border:1.5px solid var(--line);cursor:pointer;user-select:none;text-align:right;}
+  .cat-head strong{flex:1 1 auto;min-width:0;font-size:clamp(12.5px,3.9vw,15.5px);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .cat-head .cat-count{flex:none;white-space:nowrap;font-size:clamp(9.5px,3vw,12px);color:var(--muted);}
+  .cat-head .cat-arrow{flex:none;}
+  .cat-head .cat-arrow{font-size:clamp(9px,3vw,12px);color:var(--muted);transition:transform .15s ease;}
   .cat-head.collapsed .cat-arrow{transform:rotate(90deg);}
   .cat-head.low{background:#FBECEC;border-color:#F0CACC;}
   .cat-head.high{background:#E9F6EC;border-color:#BFE3C6;}
   .cat-head .cat-score{font-weight:800;}
   .cat-head.low .cat-score{color:var(--red);}
   .cat-head.high .cat-score{color:var(--green);}
-  .cat-head .cat-pct{flex:none;min-width:48px;text-align:center;font-size:13px;font-weight:800;line-height:1.4;color:#EF6C00;background:#FFF3E0;border:1.5px solid #FFB74D;border-radius:10px;padding:3px 8px;}
+  .cat-head .cat-pct{flex:none;min-width:clamp(36px,11vw,48px);text-align:center;font-size:clamp(10.5px,3.4vw,13px);font-weight:800;line-height:1.4;color:#EF6C00;background:#FFF3E0;border:1.5px solid #FFB74D;border-radius:10px;padding:3px clamp(4px,1.5vw,8px);}
   body.dark-mode .cat-head .cat-pct{color:#FFA726;background:#3A2A14;border-color:#7A5420;}
   body.dark-mode .cat-head{background:#2A2622;border-color:#3A342E;}
   body.dark-mode .cat-head.low{background:#352426;border-color:#5A3438;}
@@ -404,7 +407,11 @@
     display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;
     box-shadow:0 6px 14px var(--rose-glow);
   }
-  .choice-card .txt strong{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:15.5px;}
+  .choice-card .txt{flex:1;min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;white-space:nowrap;}
+  .choice-card .txt strong{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;font-size:15.5px;flex:1 1 auto;min-width:0;}
+  .choice-card .txt strong .lbl{font-size:inherit;color:inherit;flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .choice-card .txt strong .needs-review-badge{flex:none;white-space:nowrap;}
+  .choice-card .txt > span{flex:none;font-size:12px;color:var(--muted);white-space:nowrap;}
   .choice-card .txt span{font-size:12px;color:var(--muted);}
   .choice-card .txt .needs-review-badge{font-size:11.5px;color:var(--red);font-weight:800;background:#FBE7E7;border:1px solid #F3C6C9;border-radius:8px;padding:2px 8px;}
 
@@ -7969,7 +7976,7 @@ function renderChoiceScreen(title, choices, onPick, backFn, opts={}){
     </div>` : `
     <button class="choice-card" data-i="${i}" ${c._catKey?`data-incat="${esc(c._catKey)}"`:''} ${opts.fixed?'style="margin-bottom:0;"':(c._catKey&&!topicCatExpanded.has(c._catKey)?'style="display:none;"':'')}>
       ${c.noBadge ? '' : `<span class="badge2"${c.badgeStyle?` style="${c.badgeStyle}"`:''}>${c.badge}</span>`}
-      <span class="txt"><strong>${esc(c.label)}${c.needsReview? `<span class="needs-review-badge">بحاجة لمراجعة</span>`:''}</strong>${c.sub? `<span>${esc(c.sub)}${c.lastSolvedText? ` <span style="color:#e53935;">· ${esc(c.lastSolvedText)}</span>`:''}</span>`:''}</span>
+      <span class="txt"><strong><span class="lbl">${esc(c.label)}</span>${c.needsReview? `<span class="needs-review-badge">بحاجة لمراجعة</span>`:''}</strong>${c.sub? `<span>${esc(c.sub)}${c.lastSolvedText? ` <span style="color:#e53935;">· ${esc(c.lastSolvedText)}</span>`:''}</span>`:''}</span>
     </button>`).join('');
     
   list.querySelectorAll('[data-i]').forEach(btn=>{
