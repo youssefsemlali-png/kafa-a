@@ -574,14 +574,25 @@
   /* الواجهة الرئيسية ثابتة (بلا تمرير)، وتتكيّف أحجام الشعار والتعليق والأزرار مع ارتفاع الشاشة حتى تظهر كاملة. */
   .home-view .home-screen{overflow:hidden;overscroll-behavior:none;touch-action:none;padding-top:0;padding-bottom:10px !important;justify-content:flex-start;}
   .home-view .home-hero{padding-top:clamp(14px,calc(var(--app-height,100vh)*.022),24px);}
-  .home-view .home-hero .badge{width:clamp(70px,calc(var(--app-height,100vh)*.14),120px);height:clamp(70px,calc(var(--app-height,100vh)*.14),120px);margin:0 auto clamp(6px,calc(var(--app-height,100vh)*.012),12px);transform:none;box-shadow:0 0 0 6px rgba(255,255,255,.6),0 10px 24px var(--rose-glow);}
+  .home-view .home-hero .badge{width:clamp(70px,calc(var(--app-height,100vh)*.14),120px);height:clamp(70px,calc(var(--app-height,100vh)*.14),120px);margin:0 auto clamp(9px,calc(var(--app-height,100vh)*.026),24px);transform:none;box-shadow:0 0 0 6px rgba(255,255,255,.6),0 10px 24px var(--rose-glow);}
   .home-view .home-hero .badge svg{width:clamp(32px,calc(var(--app-height,100vh)*.065),52px);height:clamp(32px,calc(var(--app-height,100vh)*.065),52px);}
-  .home-view .home-hero h1{font-size:clamp(18px,calc(var(--app-height,100vh)*.031),24px);margin-bottom:3px;line-height:1.35;}
+  .home-view .home-hero h1{font-size:clamp(18px,calc(var(--app-height,100vh)*.031),24px);margin-bottom:clamp(5px,calc(var(--app-height,100vh)*.014),12px);line-height:1.35;}
   .home-view .home-hero p{font-size:clamp(11.5px,calc(var(--app-height,100vh)*.019),14px);line-height:1.55;max-width:300px;}
-  .home-view .role-cards{margin-top:clamp(8px,calc(var(--app-height,100vh)*.016),16px);gap:clamp(7px,calc(var(--app-height,100vh)*.015),14px);}
+  .home-view .role-cards{margin-top:clamp(14px,calc(var(--app-height,100vh)*.05),40px);gap:clamp(8px,calc(var(--app-height,100vh)*.022),18px);}
   .home-view .role-card{padding:clamp(9px,calc(var(--app-height,100vh)*.017),16px) 15px;gap:13px;}
   .home-view .role-card .icon{width:clamp(40px,calc(var(--app-height,100vh)*.062),50px);height:clamp(40px,calc(var(--app-height,100vh)*.062),50px);}
   .home-view .role-card .icon svg{width:clamp(20px,calc(var(--app-height,100vh)*.033),25px);height:clamp(20px,calc(var(--app-height,100vh)*.033),25px);}
+  /* على الشاشات القصيرة نُخفّف الفوارق الجديدة حتى تبقى الأزرار الأربعة ظاهرة كاملة دون قصّ */
+  @media (max-height:640px){
+    .home-view .home-hero .badge{margin-bottom:clamp(7px,calc(var(--app-height,100vh)*.016),14px);}
+    .home-view .home-hero h1{margin-bottom:clamp(4px,calc(var(--app-height,100vh)*.009),8px);}
+    .home-view .role-cards{margin-top:clamp(10px,calc(var(--app-height,100vh)*.03),22px);gap:clamp(7px,calc(var(--app-height,100vh)*.017),12px);}
+  }
+  @media (max-height:520px){
+    .home-view .home-hero .badge{margin-bottom:clamp(6px,calc(var(--app-height,100vh)*.012),12px);}
+    .home-view .home-hero h1{margin-bottom:3px;}
+    .home-view .role-cards{margin-top:clamp(8px,calc(var(--app-height,100vh)*.016),16px);gap:clamp(7px,calc(var(--app-height,100vh)*.015),14px);}
+  }
   .st-value{margin-inline-start:auto;font-family:'Cairo',sans-serif;font-weight:800;font-size:14px;color:var(--rose);background:#FCEFF3;border-radius:10px;padding:2px 11px;flex:none;}
   .st-row .st-value + .st-chev{margin-inline-start:0;}
   body.dark-mode .st-value{background:#3A1E2B;color:#FF6FA3;}
