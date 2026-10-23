@@ -9282,9 +9282,8 @@ async function renderUserDash(){
     };
     const leaveTopicList = ()=>{ if(userNav.topicEnteredFrom==='home'){ state={screen:'home'}; } else { userNav.step='type'; } render(); };
 
-    /* عند الدخول من «فضاء الامتحانات»: تُصنَّف المواضيع حسب تاريخ آخر حل. تظهر أولا قائمة
-       التواريخ (المواضيع التي لم تُنجز بعد في أعلى القائمة، ثم التواريخ من الأقدم إلى الأحدث
-       كما هو ترتيب القائمة سابقا)، وعند الضغط على تاريخ تُفتح مواضيعه. */
+    /* عند الدخول من «فضاء الامتحانات»: تُرتَّب المواضيع حسب تاريخ آخر حل في شاشة واحدة،
+       وكل تاريخ عنوان قابل للطيّ بنفس نمط الفئات في قائمة المواضيع. */
     if(userNav.topicFromSpace){
       const pad2 = n=> String(n).padStart(2,'0');
       const dayKeyOf = e=>{
@@ -9306,24 +9305,20 @@ async function renderUserDash(){
         else { try{ word = new Intl.DateTimeFormat('ar-MA',{weekday:'long'}).format(dt); }catch(_){ word = ''; } }
         return (word ? word+' ' : '') + pad2(d)+'/'+pad2(m)+'/'+y;
       };
-      if(userNav.topicDate && !dayGroups.has(userNav.topicDate)) userNav.topicDate = null;
-      if(userNav.topicDate){
-        renderChoiceScreen(dateLabelOf(userNav.topicDate), dayGroups.get(userNav.topicDate), pickTopicEntry,
-          ()=>{ userNav.topicDate = null; render(); }, {bottomBack:true, twoLines:true});
-        return;
-      }
-      const dateChoices = [...dayGroups.entries()].map(([k, items])=>{
-        const qSum = items.reduce((sum,e)=> sum + (e._qTotal||0), 0);
-        const topicsTxt = items.length===1 ? 'موضوع واحد' : (items.length===2 ? 'موضوعان' : (items.length<=10 ? items.length+' مواضيع' : items.length+' موضوعًا'));
-        return {
-          label: dateLabelOf(k),
-          badge: k==='__unsolved__' ? '—' : String(Number(k.split('-')[2])),
-          sub: topicsTxt + (qSum ? ' · '+qSum+' سؤال' : ''),
-          value: '__date__', _dateKey: k
-        };
+      // كل تاريخ يظهر كعنوان قابل للطيّ بنفس نمط الفئات (سهم، عدد المواضيع، مجموع الإجابات
+      // الصحيحة/الأسئلة، النسبة، ولون أحمر/أخضر خافت)، ومواضيعه تحته؛ والتواريخ مطويّة افتراضيا.
+      // الترتيب كما كان: «لم تُنجز بعد» أولا ثم التواريخ من الأقدم إلى الأحدث (وآخر موضوع أُنجز في الأسفل).
+      const dateEntries = [];
+      dayGroups.forEach((items, k)=>{
+        const catKey = '__date__:'+k;
+        const qTotal = items.reduce((sum,e)=> sum + (e._qTotal||0), 0);
+        const correct = items.reduce((sum,e)=> sum + (e._correct||0), 0);
+        const pct = qTotal ? (correct/qTotal)*100 : 0;
+        const status = !qTotal ? '' : (pct >= CATEGORY_HIGH_PCT ? 'high' : 'low');
+        dateEntries.push({_header:true, _catKey:catKey, label:dateLabelOf(k), sub:topicsWord(items.length), _qTotal:qTotal, _correct:correct, _status:status});
+        items.forEach(e=> dateEntries.push({...e, _catKey:catKey}));
       });
-      renderChoiceScreen('قائمة المواضيع', dateChoices, (c)=>{ userNav.topicDate = c._dateKey; render(); },
-        leaveTopicList, {bottomBack:true, twoLines:true, subtitle:'اختر تاريخاً لعرض مواضيعه'});
+      renderChoiceScreen('قائمة المواضيع', dateEntries, pickTopicEntry, leaveTopicList, {bottomBack:true, twoLines:true});
       return;
     }
     renderChoiceScreen('قائمة المواضيع', listWithCountEntry, pickTopicEntry, leaveTopicList, {bottomBack:true, twoLines:true});
